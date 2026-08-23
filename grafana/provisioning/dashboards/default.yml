@@ -1,0 +1,22 @@
+apiVersion: 1
+
+providers:
+  - name: 'PostgreSQL'
+    orgId: 1
+    folder: 'PostgreSQL'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/postgresql
+
+  - name: 'MinIO'
+    orgId: 1
+    folder: 'MinIO'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/minio

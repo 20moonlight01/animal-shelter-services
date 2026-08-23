@@ -1,0 +1,70 @@
+scope: ${PATRONI_SCOPE}
+name: ${PATRONI_NAME}
+
+bootstrap:
+  dcs:
+    replication:
+      username: ${PATRONI_REPLICATION_USER}
+      password: ${PATRONI_REPLICATION_PASSWORD}
+    ttl: 45
+    loop_wait: 10
+    retry_timeout: 15
+    maximum_lag_on_failover: 16777216
+    postgresql:
+      use_pg_rewind: true
+      parameters:
+        wal_level: logical
+        hot_standby: 'on'
+        max_wal_senders: 10
+        max_replication_slots: 10
+        wal_log_hints: 'on'
+      pg_hba:
+        - local all all trust
+        - host all all 0.0.0.0/0 md5
+        - host replication ${PATRONI_REPLICATION_USER} 0.0.0.0/0 md5
+        - host all ${DEBEZIUM_USER} 0.0.0.0/0 md5
+        - host replication ${DEBEZIUM_USER} 0.0.0.0/0 md5
+  post_init: >
+    /bin/sh -c "
+    psql -U postgres -c \"CREATE USER ${POSTGRES_USER} WITH SUPERUSER PASSWORD '${POSTGRES_PASSWORD}';\" &&
+    psql -U postgres -c \"CREATE DATABASE ${POSTGRES_DB} OWNER ${POSTGRES_USER};\" &&
+    psql -U postgres -d ${POSTGRES_DB} -c \"GRANT ALL PRIVILEGES ON DATABASE ${POSTGRES_DB} TO ${POSTGRES_USER};\" &&
+    psql -U postgres -d ${POSTGRES_DB} -f /docker-entrypoint-initdb.d/00_install_plpython.sql &&
+    psql -U postgres -d ${POSTGRES_DB} -f /docker-entrypoint-initdb.d/01_create_monitoring_user.sql &&
+
+    psql -U postgres -c \"CREATE USER ${DEBEZIUM_USER} WITH REPLICATION PASSWORD '${DEBEZIUM_PASSWORD}';\" &&
+    psql -U postgres -d ${POSTGRES_DB} -c \"GRANT USAGE ON SCHEMA public TO ${DEBEZIUM_USER};\" &&
+    psql -U postgres -d ${POSTGRES_DB} -c \"ALTER DEFAULT PRIVILEGES FOR ROLE ${POSTGRES_USER} IN SCHEMA public GRANT SELECT ON TABLES TO ${DEBEZIUM_USER};\" &&
+    psql -U postgres -d ${POSTGRES_DB} -c \"CREATE PUBLICATION ${DEBEZIUM_PUBLICATION_NAME} FOR ALL TABLES;\" &&
+    psql -U postgres -d ${POSTGRES_DB} -c \"ALTER PUBLICATION ${DEBEZIUM_PUBLICATION_NAME} OWNER TO ${DEBEZIUM_USER};\" &&
+
+    psql -U postgres -c \"CREATE USER ${METABASE_PG_USER} WITH PASSWORD '${METABASE_PG_PASSWORD}';\" &&
+    psql -U postgres -c \"CREATE DATABASE ${METABASE_PG_DB} OWNER ${METABASE_PG_USER};\" &&
+    psql -U postgres -d ${METABASE_PG_DB} -c \"GRANT ALL PRIVILEGES ON DATABASE ${METABASE_PG_DB} TO ${METABASE_PG_USER};\" &&
+    psql -U postgres -d ${METABASE_PG_DB} -f /metabase_backup.sql
+    "
+  initdb:
+  - auth-host: md5
+  - auth-local: trust
+  - encoding: UTF8
+  - data-checksums
+
+etcd:
+  hosts: ${PATRONI_ETCD_HOSTS}
+
+postgresql:
+  listen: ${PATRONI_POSTGRESQL_LISTEN}
+  connect_address: ${PATRONI_POSTGRESQL_CONNECT_ADDRESS}
+  data_dir: /var/lib/postgresql/data/pgdata
+  bin_dir: /usr/local/bin
+  authentication:
+    superuser:
+      username: postgres
+      password: ${PATRONI_SUPERUSER_PASSWORD}
+    replication:
+      username: ${PATRONI_REPLICATION_USER}
+      password: ${PATRONI_REPLICATION_PASSWORD}
+
+restapi:
+  listen: ${PATRONI_RESTAPI_LISTEN}
+  connect_address: ${PATRONI_RESTAPI_CONNECT_ADDRESS}

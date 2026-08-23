@@ -1,0 +1,16 @@
+FROM postgres:15-alpine
+
+RUN apk add --no-cache curl
+
+RUN curl -L https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc && \
+    chmod +x /usr/local/bin/mc
+
+RUN apk add --no-cache dcron
+
+COPY scripts/backup.sh /backup.sh
+COPY scripts/backup-crontab /etc/crontabs/root
+COPY scripts/backup-entrypoint.sh /entrypoint.sh
+
+RUN chmod +x /backup.sh /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]

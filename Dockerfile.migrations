@@ -1,0 +1,27 @@
+FROM liquibase/liquibase:4.25.1
+
+USER root
+
+RUN apt-get update && \
+    apt-get install -y postgresql-client curl wget gnupg && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN wget -qO- https://realkarych.github.io/seqwall-apt/public.key | apt-key add - && \
+    echo "deb [arch=amd64] https://realkarych.github.io/seqwall-apt stable main" | tee /etc/apt/sources.list.d/seqwall.list && \
+    apt-get update
+
+RUN apt-get install -y seqwall
+
+RUN seqwall --help
+
+RUN mkdir -p /scripts /migrations
+
+COPY scripts/ /scripts/
+COPY migrations/ /migrations/
+
+RUN chmod +x /scripts/*.sh && \
+    chown -R liquibase:liquibase /scripts /migrations
+
+USER liquibase
+
+ENTRYPOINT ["/scripts/entrypoint.sh"]

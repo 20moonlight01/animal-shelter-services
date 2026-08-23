@@ -1,0 +1,519 @@
+services:
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.19
+    container_name: etcd
+    restart: unless-stopped
+    environment:
+      ETCD_ENABLE_V2: "true"
+      ETCD_NAME: etcd
+      ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+      ETCD_ADVERTISE_CLIENT_URLS: http://etcd:2379
+      ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd:2380
+      ETCD_INITIAL_CLUSTER: etcd=http://etcd:2380
+      ETCD_INITIAL_CLUSTER_STATE: new
+      ETCD_INITIAL_CLUSTER_TOKEN: patroni-cluster
+    ports:
+      - "2379:2379"
+      - "2380:2380"
+    volumes:
+      - etcd_data:/etcd-data
+    networks:
+      - shelter_network
+
+  patroni-node1:
+    build:
+      context: .
+      dockerfile: Dockerfile.patroni
+      args:
+        POSTGRES_EXPORTER_PASSWORD: ${POSTGRES_EXPORTER_PASSWORD}
+    container_name: patroni-node1
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+
+      PATRONI_SCOPE: ${PATRONI_SCOPE}
+      PATRONI_NAME: patroni-node1
+      PATRONI_ETCD_HOSTS: ${ETCD_HOSTS}
+      PATRONI_POSTGRESQL_LISTEN: 0.0.0.0:5432
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: patroni-node1:5432
+      PATRONI_RESTAPI_LISTEN: 0.0.0.0:8008
+      PATRONI_RESTAPI_CONNECT_ADDRESS: patroni-node1:8008
+      PATRONI_REPLICATION_USER: ${PATRONI_REPLICATION_USER}
+      PATRONI_REPLICATION_PASSWORD: ${PATRONI_REPLICATION_PASSWORD}
+      PATRONI_SUPERUSER_PASSWORD: ${PATRONI_SUPERUSER_PASSWORD}
+      DEBEZIUM_USER: ${DEBEZIUM_USER}
+      DEBEZIUM_PASSWORD: ${DEBEZIUM_PASSWORD}
+      DEBEZIUM_PUBLICATION_NAME: ${DEBEZIUM_PUBLICATION_NAME}
+      METABASE_PG_USER: ${METABASE_PG_USER}
+      METABASE_PG_PASSWORD: ${METABASE_PG_PASSWORD}
+      METABASE_PG_DB: ${METABASE_PG_DB}
+    volumes:
+      - ./patroni/config.yml.template:/etc/patroni/config.yml.template
+      - patroni_node1_data:/var/lib/postgresql/data
+      - ./patroni-init/metabase_backup.sql:/metabase_backup.sql
+    depends_on:
+      - etcd
+    ports:
+      - "8008:8008"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - shelter_network
+
+  patroni-node2:
+    build:
+      context: .
+      dockerfile: Dockerfile.patroni
+      args:
+        POSTGRES_EXPORTER_PASSWORD: ${POSTGRES_EXPORTER_PASSWORD}
+    container_name: patroni-node2
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+
+      PATRONI_SCOPE: ${PATRONI_SCOPE}
+      PATRONI_NAME: patroni-node2
+      PATRONI_ETCD_HOSTS: ${ETCD_HOSTS}
+      PATRONI_POSTGRESQL_LISTEN: 0.0.0.0:5432
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: patroni-node2:5432
+      PATRONI_RESTAPI_LISTEN: 0.0.0.0:8008
+      PATRONI_RESTAPI_CONNECT_ADDRESS: patroni-node2:8008
+      PATRONI_REPLICATION_USER: ${PATRONI_REPLICATION_USER}
+      PATRONI_REPLICATION_PASSWORD: ${PATRONI_REPLICATION_PASSWORD}
+      PATRONI_SUPERUSER_PASSWORD: ${PATRONI_SUPERUSER_PASSWORD}
+      DEBEZIUM_USER: ${DEBEZIUM_USER}
+      DEBEZIUM_PASSWORD: ${DEBEZIUM_PASSWORD}
+      DEBEZIUM_PUBLICATION_NAME: ${DEBEZIUM_PUBLICATION_NAME}
+      METABASE_PG_USER: ${METABASE_PG_USER}
+      METABASE_PG_PASSWORD: ${METABASE_PG_PASSWORD}
+      METABASE_PG_DB: ${METABASE_PG_DB}
+    volumes:
+      - ./patroni/config.yml.template:/etc/patroni/config.yml.template
+      - patroni_node2_data:/var/lib/postgresql/data
+      - ./patroni-init/metabase_backup.sql:/metabase_backup.sql
+    depends_on:
+      - etcd
+    ports:
+      - "8009:8008"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - shelter_network
+
+  haproxy:
+    image: haproxy:latest
+    container_name: haproxy
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+      - "8404:8404"
+    volumes:
+      - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    environment:
+      HAPROXY_STATS_PASSWORD: ${HAPROXY_STATS_PASSWORD:-admin}
+    depends_on:
+      - patroni-node1
+      - patroni-node2
+    networks:
+      - shelter_network
+
+  migrations:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrations
+    container_name: animal_shelter_migrations
+    environment:
+      DB_HOST: haproxy
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      LIQUIBASE_TAG: ${LIQUIBASE_TAG}
+      TEST_DB_NAME: ${TEST_DB_NAME:-test_db}
+    depends_on:
+      haproxy:
+        condition: service_started
+    volumes:
+      - ./migrations:/migrations
+      - ./scripts:/scripts
+    networks:
+      - shelter_network
+    entrypoint: ["/scripts/entrypoint.sh"]
+    user: root
+    working_dir: /migrations
+
+  seeder:
+    build:
+      context: .
+      dockerfile: Dockerfile.seeder
+    container_name: animal_shelter_seeder
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    environment:
+      DB_HOST: haproxy
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      APP_ENV: ${APP_ENV}
+      SEED_COUNT: ${SEED_COUNT}
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+    volumes:
+      - ./seeds:/seeds
+      - ./scripts:/scripts
+    networks:
+      - shelter_network
+
+  postgres_exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: postgres_exporter
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: "postgresql://postgres_exporter:${POSTGRES_EXPORTER_PASSWORD}@haproxy:5432/${POSTGRES_DB}?sslmode=disable"
+    ports:
+      - "9187:9187"
+    depends_on:
+      haproxy:
+        condition: service_started
+    networks:
+      - shelter_network
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+    depends_on:
+      postgres_exporter:
+        condition: service_started
+      minio:
+        condition: service_healthy
+    networks:
+      - shelter_network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
+    networks:
+      - shelter_network
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_PROMETHEUS_AUTH_TYPE: public
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - shelter_network
+
+  minio-setup:
+    build:
+      context: .
+      dockerfile: Dockerfile.minio-setup
+    container_name: minio_setup
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BACKUP_BUCKET: ${MINIO_BACKUP_BUCKET}
+      MINIO_BACKUP_USER: ${MINIO_BACKUP_USER}
+      MINIO_BACKUP_PASSWORD: ${MINIO_BACKUP_PASSWORD}
+    networks:
+      - shelter_network
+
+  backup:
+    build:
+      context: .
+      dockerfile: Dockerfile.backup
+    container_name: animal_shelter_backup
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: haproxy
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BACKUP_USER: ${MINIO_BACKUP_USER}
+      MINIO_BACKUP_PASSWORD: ${MINIO_BACKUP_PASSWORD}
+      BUCKET_BACKUP_NAME: ${BUCKET_BACKUP_NAME}
+      BACKUP_RETENTION_COUNT: ${BACKUP_RETENTION_COUNT}
+      BACKUP_INTERVAL: ${BACKUP_INTERVAL}
+    depends_on:
+      haproxy:
+        condition: service_started
+      minio:
+        condition: service_healthy
+    volumes:
+      - backup_logs:/var/log
+    networks:
+      - shelter_network
+
+  backup-exporter:
+    build:
+      context: .
+      dockerfile: Dockerfile.backup-exporter
+    container_name: backup_exporter
+    restart: unless-stopped
+    environment:
+      BUCKET_BACKUP_NAME: ${BUCKET_BACKUP_NAME}
+      MINIO_BACKUP_USER: ${MINIO_BACKUP_USER}
+      MINIO_BACKUP_PASSWORD: ${MINIO_BACKUP_PASSWORD}
+      PORT: 8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - shelter_network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    ports:
+      - "9092:9092"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    environment:
+      KAFKA_ENABLE_KRAFT: 'true'
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:9092'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:29093'
+      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:29093'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_LOG_DIRS: '/var/lib/kafka/data'
+      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+    networks:
+      - shelter_network
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8085:8080"
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_CLUSTERS_0_NAME: "local-kraft-cluster"
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka:9092"
+    networks:
+      - shelter_network
+
+  kafka-connect:
+    build:
+      context: .
+      dockerfile: Dockerfile.connect
+    container_name: kafka-connect
+    ports:
+      - "8083:8083"
+    depends_on:
+      - kafka
+      - haproxy
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: "kafka:9092"
+      CONNECT_REST_PORT: 8083
+      CONNECT_REST_ADVERTISED_HOST_NAME: "kafka-connect"
+      CONNECT_GROUP_ID: "compose-connect-group"
+      CONNECT_CONFIG_STORAGE_TOPIC: "docker-connect-configs"
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_STORAGE_TOPIC: "docker-connect-offsets"
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_TOPIC: "docker-connect-status"
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      CONNECT_VALUE_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      CONNECT_PLUGIN_PATH: "/usr/share/filestream-connectors,/usr/share/java,/usr/share/confluent-hub-components"
+      CONNECT_CONNECTOR_CLIENT_CONFIG_OVERRIDE_POLICY: "All"
+    networks:
+      - shelter_network
+
+  connector-init:
+    image: curlimages/curl:8.1.2
+    container_name: connector-init
+    volumes:
+      - ./scripts/register-connector.sh:/register-connector.sh
+    environment:
+      - CONNECT_HOST=kafka-connect
+      - CONNECT_PORT=8083
+      - DB_HOST=haproxy
+      - DB_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB}
+      - DEBEZIUM_USER=${DEBEZIUM_USER}
+      - DEBEZIUM_PASSWORD=${DEBEZIUM_PASSWORD}
+      - DEBEZIUM_PUBLICATION_NAME=${DEBEZIUM_PUBLICATION_NAME}
+      - DEBEZIUM_TOPIC_PREFIX=${DEBEZIUM_TOPIC_PREFIX_NAME:-animal_shelter_cdc}
+      - DEBEZIUM_SLOT_NAME=${DEBEZIUM_SLOT_NAME_VAR:-debezium_donations_slot}
+    entrypoint: ["/bin/sh", "/register-connector.sh"]
+    depends_on:
+      - kafka-connect
+    networks:
+      - shelter_network
+
+  connect-restarter:
+    image: alpine:latest
+    container_name: connect_restarter
+    restart: unless-stopped
+    depends_on:
+      - kafka-connect
+    networks:
+      - shelter_network
+    command: >
+      /bin/sh -c "
+      apk add --no-cache curl jq;
+      echo 'Мониторинг статуса Debezium запущен...';
+      while true; do
+        sleep 10;
+        STATUS=$(curl -s http://kafka-connect:8083/connectors/postgres-connector/status | jq -r '.tasks[0].state' 2>/dev/null);
+        
+        if [ \"$$STATUS\" = \"FAILED\" ]; then
+          echo \"[$(date)] Найдена упавшая таска коннектора, принудительный рестарт тасок...\";
+          
+          curl -s -X POST \"http://kafka-connect:8083/connectors/postgres-connector/restart?includeTasks=true&onlyFailed=true\";
+          
+          sleep 25;
+        fi;
+      done;
+      "
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:23.8
+    container_name: clickhouse
+    ports:
+      - "8123:8123"
+    environment:
+      - METABASE_USER=${METABASE_USER}
+      - METABASE_PASSWORD=${METABASE_PASSWORD}
+    volumes:
+      - ./clickhouse/clickhouse-config.xml:/etc/clickhouse-server/config.d/limits.xml
+      - ./clickhouse/clickhouse-users.xml:/etc/clickhouse-server/users.d/metabase-user.xml
+      - ./clickhouse/init:/docker-entrypoint-initdb.d
+      - clickhouse_data:/var/lib/clickhouse
+    depends_on:
+      - kafka
+    networks:
+      - shelter_network
+
+  download-driver:
+    image: alpine:latest
+    container_name: download_driver
+    volumes:
+      - metabase_plugins:/plugins
+    command: >
+      sh -c "
+      if [ ! -f /plugins/clickhouse.metabase-driver.jar ]; then
+        wget -q -O /plugins/clickhouse.metabase-driver.jar https://github.com/ClickHouse/metabase-clickhouse-driver/releases/download/1.2.1/clickhouse.metabase-driver.jar;
+      fi
+      "
+  
+  metabase:
+    image: metabase/metabase:v0.49.3
+    container_name: metabase
+    ports:
+      - "3001:3000"
+    environment:
+      - MB_DB_TYPE=postgres
+      - MB_DB_DBNAME=${METABASE_PG_DB}
+      - MB_DB_PORT=5432
+      - MB_DB_USER=${METABASE_PG_USER}
+      - MB_DB_PASS=${METABASE_PG_PASSWORD}
+      - MB_DB_HOST=haproxy
+      - MB_PLUGINS_DIR=/plugins
+    volumes:
+      - metabase_plugins:/plugins
+    restart: always
+    depends_on:
+      download-driver:
+        condition: service_completed_successfully
+      haproxy:
+        condition: service_started
+      clickhouse:
+        condition: service_started
+    networks:
+      - shelter_network
+
+volumes:
+  etcd_data:
+    name: etcd_data
+  patroni_node1_data:
+    name: patroni_node1_data
+  patroni_node2_data:
+    name: patroni_node2_data
+  prometheus_data:
+    name: prometheus_data
+  grafana_data:
+    name: grafana_data
+  minio_data:
+    name: minio_data
+  backup_logs:
+    name: backup_logs
+  kafka_data:
+    name: kafka_data
+  clickhouse_data:
+    name: clickhouse_data
+  metabase_plugins:
+    name: metabase_plugins
+
+networks:
+  shelter_network:
+    name: animal_shelter_network
+    driver: bridge

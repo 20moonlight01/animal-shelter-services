@@ -1,0 +1,14 @@
+<clickhouse>
+    <users>
+        <metabase_viewer>
+            <password from_env="METABASE_PASSWORD" />
+            <profile>default</profile>
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+            <grants>
+                <grant>GRANT SELECT ON default.donations_analytics</grant>
+            </grants>
+        </metabase_viewer>
+    </users>
+</clickhouse>

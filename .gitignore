@@ -1,0 +1,24 @@
+# Environment variables (секреты)
+.env
+
+# PostgreSQL data directory
+data/
+postgres_data/
+
+# Docker volumes
+volumes/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+patroni-init/metabase_backup.sql

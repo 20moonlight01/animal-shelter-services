@@ -1,0 +1,236 @@
+Table animal_species {
+  id integer [pk, increment]
+  name varchar [not null]
+}
+
+Table facility_types {
+  id integer [pk, increment]
+  name varchar [not null]
+}
+
+Table diagnoses {
+  id integer [pk, increment]
+  name varchar [not null]
+}
+
+Table medications {
+  id integer [pk, increment]
+  name varchar [not null]
+}
+
+Table marital_statuses {
+  id integer [pk, increment]
+  name varchar [not null]
+}
+
+Table jobs {
+  id integer [pk, increment]
+  name varchar [not null]
+}
+
+Table supply_items {
+  id integer [pk, increment]
+  name varchar [not null]
+}
+
+Table payment_types {
+  id integer [pk, increment]
+  name varchar [not null]
+}
+
+Table request_states {
+  id integer [pk, increment]
+  name varchar [not null]
+}
+
+Table animal_states {
+  id integer [pk, increment]
+  name varchar [not null]
+}
+
+Table animal_breeds {
+  id integer [pk, increment]
+  name varchar [not null]
+  animal_species_id integer [not null]
+}
+
+Table facilities {
+  id integer [pk, increment]
+  facility_type_id integer [not null]
+  location varchar [not null]
+}
+
+Table entities {
+  id integer [pk, increment]
+  name varchar [not null]
+  contacts varchar [not null]
+  address varchar
+}
+
+Table owners {
+  id integer [pk, increment]
+  entity_id integer [not null]
+  gender enum('MALE', 'FEMALE', 'OTHER') [not null]
+  birth_date timestamp [not null]
+  marital_status_id integer [not null]
+}
+
+Table donors {
+  id integer [pk, increment]
+  entity_id integer [not null]
+  type enum('INDIVIDUAL', 'LEGAL_ENTITY') [not null]
+}
+
+Table employees {
+  id integer [pk, increment]
+  entity_id integer [not null]
+  gender enum('MALE', 'FEMALE', 'OTHER') [not null]
+  birth_date timestamp [not null]
+}
+
+Table employee_details {
+  id integer [pk, increment]
+  employee_id integer [not null]
+  job_id integer [not null]
+  working_start_date timestamp [not null]
+  working_end_date timestamp
+}
+
+Table suppliers {
+  id integer [pk, increment]
+  entity_id integer [not null]
+  cooperation_start_date timestamp [not null]
+  cooperation_end_date timestamp
+}
+
+Table animals {
+  id integer [pk, increment]
+  name varchar [not null]
+  animal_breed_id integer [not null]
+  gender enum('MALE', 'FEMALE', 'OTHER') [not null]
+  estimated_birth_date timestamp [not null]
+  animal_state_id integer [not null]
+}
+
+Table animal_arrivals {
+  id integer [pk, increment]
+  date timestamp [not null]
+  animal_id integer [not null]
+  employee_id integer [not null]
+  commentary varchar
+}
+
+Table adoptions {
+  id integer [pk, increment]
+  date timestamp [not null]
+  animal_id integer [not null]
+  owner_id integer [not null]
+  employee_id integer [not null]
+}
+
+Table animal_accomodations {
+  id integer [pk, increment]
+  animal_id integer [not null]
+  accomodation_id integer [not null]
+  start_date timestamp [not null]
+  end_date timestamp
+}
+
+Table animal_health_records {
+  id integer [pk, increment]
+  diagnosis_id integer [not null]
+  animal_id integer [not null]
+  vet_clinic_id integer [not null]
+  treatment_start_date timestamp [not null]
+  treatment_end_date timestamp
+}
+
+Table treatments {
+  id integer [pk, increment]
+  animal_health_record_id integer [not null]
+  medication_id integer [not null]
+  commentary varchar
+  medication_start_date timestamp [not null]
+  medication_end_date timestamp
+}
+
+Table supply_records {
+  id integer [pk, increment]
+  date timestamp [not null]
+  supplier_id integer [not null]
+  cost decimal(10,2) [not null]
+}
+
+Table supply_record_details {
+  id integer [pk, increment]
+  supply_record_id integer [not null]
+  supply_item_id integer [not null]
+  quantity integer [not null]
+  price decimal(10,2) [not null]
+}
+
+Table donations {
+  id integer [pk, increment]
+  date timestamp [not null]
+  amount decimal(10,2) [not null]
+  donor_id integer [not null]
+  payment_type_id integer [not null]
+  purpose varchar
+}
+
+Table adoption_requests {
+  id integer [pk, increment]
+  date timestamp [not null]
+  owner_id integer [not null]
+  animal_id integer [not null]
+  adoption_type enum('FOSTER', 'PERMANENT') [not null]
+  request_state_id integer [not null]
+}
+
+Ref: animal_breeds.animal_species_id > animal_species.id
+
+Ref: animals.animal_breed_id > animal_breeds.id
+Ref: animals.animal_state_id > animal_states.id
+
+Ref: facilities.facility_type_id > facility_types.id
+
+Ref: animal_accomodations.animal_id > animals.id
+Ref: animal_accomodations.accomodation_id > facilities.id
+
+Ref: animal_health_records.diagnosis_id > diagnoses.id
+Ref: animal_health_records.animal_id > animals.id
+Ref: animal_health_records.vet_clinic_id > suppliers.id
+
+Ref: treatments.animal_health_record_id > animal_health_records.id
+Ref: treatments.medication_id > medications.id
+
+Ref: owners.entity_id > entities.id
+Ref: owners.marital_status_id > marital_statuses.id
+
+Ref: donors.entity_id > entities.id
+
+Ref: employees.entity_id > entities.id
+
+Ref: employee_details.employee_id > employees.id
+Ref: employee_details.job_id > jobs.id
+
+Ref: suppliers.entity_id > entities.id
+
+Ref: animal_arrivals.animal_id > animals.id
+Ref: animal_arrivals.employee_id > employees.id
+
+Ref: adoptions.animal_id > animals.id
+Ref: adoptions.owner_id > owners.id
+Ref: adoptions.employee_id > employees.id
+
+Ref: supply_records.supplier_id > suppliers.id
+
+Ref: supply_record_details.supply_record_id > supply_records.id
+Ref: supply_record_details.supply_item_id > supply_items.id
+
+Ref: donations.donor_id > donors.id
+Ref: donations.payment_type_id > payment_types.id
+
+Ref: adoption_requests.owner_id > owners.id
+Ref: adoption_requests.animal_id > animals.id
+Ref: adoption_requests.request_state_id > request_states.id

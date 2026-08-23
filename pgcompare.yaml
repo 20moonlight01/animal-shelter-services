@@ -1,0 +1,64 @@
+migration:
+  env_var: LIQUIBASE_TAG
+  before_version: "v6"
+  after_version: "v7"
+
+setup:
+  command: "docker-compose up -d haproxy && docker-compose run --rm -T migrations && docker-compose run --rm -T seeder"
+
+benchmark:
+  before_queries: queries_before.sql
+  after_queries: queries_after.sql
+  repeats: 3
+  warmup_iterations: 5
+  iterations: 100
+  concurrency: 4
+
+report:
+  description:
+    - query: available_dogs
+      what: Сканирование по индексу вместо последовательного сканирования.
+      changes: |
+        CREATE INDEX idx_animals_breed_state ON animals (animal_state_id, animal_breed_id);
+      expected: Уменьшение p95, возможно, уменьшение p99, увеличение QPS.
+    - query: current_diseases
+      what: Нет оптимизаций.
+      changes:
+      expected: 
+    - query: monthly_donations
+      what: Выборка по материализованному представлению (с предварительной агрегацией) вместо тяжелой агрегации.
+      changes: |
+        CREATE MATERIALIZED VIEW mv_donations_daily_stats AS
+        SELECT 
+          d.date::date as donation_day,
+          dr.type as donor_type,
+          pt.name as payment_method,
+          COUNT(d.id) as transactions_count,
+          SUM(d.amount) as total_amount,
+          COUNT(DISTINCT d.donor_id) as unique_donors
+        FROM donations d
+        JOIN donors dr ON d.donor_id = dr.id
+        JOIN payment_types pt ON d.payment_type_id = pt.id
+        GROUP BY d.date::date, dr.type, pt.name;
+
+        SELECT
+          TO_CHAR(donation_day, 'YYYY-MM') as year_month,
+          SUM(total_amount) as total_amount,
+          SUM(transactions_count) as donations_count
+        FROM mv_donations_daily_stats
+        WHERE donation_day >= CURRENT_DATE - INTERVAL '2 years'
+        GROUP BY TO_CHAR(donation_day, 'YYYY-MM')
+        ORDER BY year_month ASC;
+      expected: Уменьшение p95, возможно, уменьшение p99, увеличение QPS.
+    - query: supplier_items
+      what: Нет оптимизаций.
+      changes:
+      expected: 
+    - query: animal_medical_history
+      what: Нет оптимизаций.
+      changes:
+      expected: 
+    - query: manager_hiring_history
+      what: Нет оптимизаций.
+      changes:
+      expected:
